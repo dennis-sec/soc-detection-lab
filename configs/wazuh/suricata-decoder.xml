@@ -1,0 +1,14 @@
+<!-- Custom Wazuh decoder — SOC Detection Lab -->
+<!-- Location on the Wazuh manager: /var/ossec/etc/decoders/local_decoder.xml -->
+<!--
+  Purpose: Suricata runs on pfSense, which forwards its eve.json wrapped inside a
+  syslog header. Wazuh's built-in Suricata decoder expects raw eve.json and never
+  matches this nested form. This custom decoder keys off the program name
+  ("suricata", set via syslog-ng's program-override) and uses the JSON_Decoder
+  plugin to unwrap the JSON payload, exposing every Suricata field (alert.signature,
+  alert.signature_id, src/dest IPs, ports, protocol) for rules to match on.
+-->
+<decoder name="suricata-json">
+  <program_name>^suricata</program_name>
+  <plugin_decoder>JSON_Decoder</plugin_decoder>
+</decoder>
