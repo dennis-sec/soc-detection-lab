@@ -54,7 +54,7 @@ Installed Proxmox VE 9.1 on the M920s. Ran into the new deb822 repo format — d
 
 Created `vmbr1` as the lab switch so pfSense handles all routing, NAT, DHCP and DNS rather than Proxmox. Putting an IP + NAT on the bridge would have created a second router fighting pfSense.
 
-One thing to be straight about, since the config evolved: `vmbr1` was originally left with no IP at all. Later, so the Proxmox host could reach the Wazuh manager on the lab network, the host was given a single address on `vmbr1` (`10.10.10.2`) with the gateway field deliberately left blank. That keeps the host reachable on the lab segment without turning it into a router — its own route out still goes via `vmbr0`, and pfSense still provides all routing, NAT, DHCP and firewalling. The one consequence is that lab hosts can now reach the Proxmox host at `10.10.10.2`; every machine on that segment is trusted, and the deliberately vulnerable target lives on a separate segment with no path to it (see Phase 8). Locking down host access is a hardening item.
+The Proxmox host is given a single management address on `vmbr1` (`10.10.10.2`), with the gateway field deliberately left blank — so it can reach the Wazuh SIEM on the lab network without becoming a router or taking a second default route. Its own route out stays via `vmbr0`, and pfSense still owns all routing, NAT, DHCP and firewalling. Lab hosts can therefore reach the host at `10.10.10.2`; every machine on that segment is trusted infrastructure, and the deliberately vulnerable target lives on a separate segment (Phase 8) with no path to the host at all. Tightening host-management access is a hardening item.
 
 ### Phase 3 — pfSense, Suricata, WireGuard (the core)
 
@@ -126,6 +126,7 @@ The headline conclusion is the kind of thing the whole lab was built to produce:
 
 - **Network-only visibility on the target.** There's no host agent on DC-1 (a modern Wazuh agent won't run on Debian 7), which is the direct cause of the host-level blind spot documented in Phase 11. Agentless syslog forwarding from the target would close it — recorded as an enhancement.
 - **The Proxmox host sits on my home network**, not behind pfSense — normal for a single-box lab, but I'd move pfSense to its own hardware to gate the whole house.
+- **Single-operator setup with root auto-login**; proper auth hardening (2FA, `fail2ban`, a non-root admin, backups) is the next area of work.
 - **Suricata runs on the firewall**, which is clean for placement but limits how richly the SIEM can decode its alerts compared to a dedicated sensor host — a documented trade-off.
 
 ## Repo contents
