@@ -1,21 +1,21 @@
-# Phase 2 — Network Bridges
+# Phase 2 — Network Bridges (Segmentation Foundation)
 
-## Goal
+## Objective
 
-Create the virtual switching that the lab networks sit on, and decide where routing responsibility lives.
+Create the virtual switching layer the lab networks sit on, and establish a clean separation of responsibility between the hypervisor and the firewall.
 
-## What was built
+## Build
 
-Created `vmbr1` as the lab switch. The deliberate decision here is that Proxmox does **not** route for the lab — pfSense does. Putting an IP and NAT on the bridge would have created a second router competing with pfSense for the same job, which is a classic source of confusing, hard-to-diagnose network behaviour. So the bridge is left as a plain Layer 2 switch and pfSense provides all routing, NAT, DHCP and DNS.
+Created **`vmbr1`** as the lab's Layer 2 switch. A core design decision underpins this: **Proxmox does not route for the lab — pfSense does.** All routing, NAT, DHCP and DNS are owned by a single authority (the firewall), rather than split between the hypervisor and pfSense. Putting an IP and NAT directly on the bridge would introduce a second, competing router — a well-known source of asymmetric routing and hard-to-diagnose connectivity faults. Keeping the bridge as a plain switch keeps the network model simple and the traffic path predictable, which matters when the whole point of the lab is knowing exactly where traffic flows and where it is inspected.
 
-## A correction worth recording (the config evolved)
+## Host management addressing
 
-The bridge was originally created with no IP at all, which matched the "Proxmox is not a router" decision cleanly.
+The Proxmox host is given a single management address on `vmbr1` (`10.10.10.2`) so it can reach the Wazuh SIEM on the lab network — with the **gateway field deliberately left blank**. This distinction is important: an address makes the host *reachable* on the segment, while leaving the gateway empty ensures it does **not** become a router or acquire a second default route. The host's own route to the internet remains via `vmbr0`, and pfSense continues to provide all routing, NAT, DHCP and firewalling for the lab.
 
-Later, so the Proxmox host itself could reach the Wazuh manager on the lab network, the host was given a single address on `vmbr1` (`10.10.10.2`) — with the gateway field deliberately left **blank**. This is an important distinction: giving the host an address on the segment makes it *reachable* on that network, but leaving the gateway blank means it does not become a router and does not gain a second default route. The host's own route to the internet still goes via `vmbr0`, and pfSense still provides all routing, NAT, DHCP and firewalling for the lab.
+The resulting exposure is bounded and understood: hosts on the lab segment can reach the Proxmox management address, but every machine on that segment is trusted infrastructure (attacker, DNS filter, SIEM). The deliberately vulnerable target is deployed on a **separate, isolated segment** (Phase 8) with firewall rules that give it no path to the host at all. Tightening host-management access is tracked as a hardening item.
 
-The one consequence is that machines on the lab segment can now reach the Proxmox host at `10.10.10.2`. Every machine on that segment is trusted (Kali, Pi-hole, Wazuh), and the deliberately vulnerable target lives on a *separate* segment (Phase 8) with firewall rules that give it no path to the host at all. Locking down host access properly is a hardening item.
+## Real-world relevance
 
-## State at end of phase
+Single-authority routing and deliberate network segmentation are foundational to defensible network design. Reasoning explicitly about which segments can reach management interfaces — and bounding that exposure — is exactly the network-security thinking that separates a flat, fragile lab from a segmented one.
 
-A lab switch in place, with pfSense — not Proxmox — owning all routing for the lab.
+*Evidence: see `/screenshots` for the Proxmox bridge configuration.*
