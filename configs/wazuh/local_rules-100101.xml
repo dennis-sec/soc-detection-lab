@@ -1,0 +1,18 @@
+<!-- Custom Wazuh rule — SOC Detection Lab -->
+<!-- Location on the Wazuh manager: /var/ossec/etc/rules/local_rules.xml -->
+<!--
+  Purpose: raises a Wazuh alert only for genuine Suricata IDS detections.
+  It fires when the suricata-json decoder has run AND the event type is "alert"
+  (so routine Suricata traffic events stay silent). The alert description carries
+  the Suricata signature name through, so the fired Wazuh alert names the detection.
+  Self-contained by design: uses decoded_as + a field match with no if_sid parent
+  dependency, which avoids relying on built-in Suricata rules that never fire for
+  custom-decoded logs.
+-->
+<group name="suricata,ids,">
+  <rule id="100101" level="8">
+    <decoded_as>suricata-json</decoded_as>
+    <field name="event_type">^alert$</field>
+    <description>Suricata IDS Alert: $(alert.signature)</description>
+  </rule>
+</group>
