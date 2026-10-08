@@ -1,0 +1,18 @@
+# Never commit pfSense/firewall backups — they contain keys, tokens, password hashes
+config-*.xml
+*config.xml
+filter-config-*.xml
+*.key
+*.pem
+
+# Engagement logs / raw captures
+*.log
+*.pcap
+*.pcapng
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
