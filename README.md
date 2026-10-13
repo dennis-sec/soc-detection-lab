@@ -2,6 +2,10 @@
 
 A home security-operations lab: network segmentation, custom IDS rules, and a Wazuh SIEM — then a full attack against a live target to measure what the monitoring actually catches and misses.
 
+**Skills demonstrated:** network segmentation · IDS/IPS (Suricata) · SIEM engineering (Wazuh) · detection engineering & custom rules · log pipeline design (syslog-ng) · MITRE ATT&CK mapping · attack simulation · defensive analysis & reporting.
+
+**Jump to:** [Architecture](#how-its-laid-out) · [Build phases](#what-i-built-and-verified) · [The detection exercise](#phase-11--the-detection-exercise) · [Reports](#reports) · [Limitations](#honest-limitations)
+
 This started as a way to get hands-on with the things a course can't really teach — segmenting a network, writing IDS rules, wiring detections into a SIEM, breaking and fixing a VPN, and watching an attack light up (or slip past) my own monitoring in real time. It ended up as a working detection stack that I then attacked end to end, from first scan to root, and analysed from the defender's side.
 
 Everything runs on a single Lenovo ThinkCentre M920s (i5-8500, 24 GB RAM) under Proxmox. The lab is walled off from my home network behind pfSense, watched by Suricata on two segments, filtered by Pi-hole, aggregated into a Wazuh SIEM, and reachable remotely over WireGuard. A deliberately vulnerable target sits on its own isolated segment, and I attack it from a separate Kali box.
@@ -44,85 +48,67 @@ The home router hands off to pfSense's WAN, and pfSense firewalls and NATs the t
 | Target (isolated) | DC-1 (VulnHub) — Debian 7 / Drupal 7 | 10.10.20.100 |
 | Self-hosted services | Jellyfin + *arr stack | 10.10.10.x |
 
-## What I actually did (and verified)
+## What I built (and verified)
+
+Each phase below is a short summary with its key result. Full step-by-step writeups — including the troubleshooting — are in [`docs/`](docs/).
 
 ### Phase 1 — Proxmox host
+Installed Proxmox VE 9.1 as the hypervisor for the whole lab, with an XFCE desktop for local access. Hit the new deb822 repo format (disabling a repo needs `Enabled: false`, not commenting out components). Documented root auto-login as a deliberate convenience/security trade-off.
+→ [Full writeup](docs/phase-01-proxmox.md)
 
-Installed Proxmox VE 9.1 on the M920s. Ran into the new deb822 repo format — disabling a repo needs `Enabled: false`, not commenting out the components, which threw "malformed entry" errors until I worked it out. Added an XFCE desktop for local access. I run root auto-login for convenience, which I know widens the local attack surface — I've noted it as a trade-off; hardening is on the roadmap.
+### Phase 2 — Network segmentation
+Created `vmbr1` as the lab switch with a single authority for routing: pfSense owns all routing, NAT, DHCP and DNS, not Proxmox. The host gets one management address on the segment (gateway left blank, so it stays a host and not a router) to reach the SIEM.
+→ [Full writeup](docs/phase-02-network-bridges.md)
 
-### Phase 2 — Network bridges
+### Phase 3 — pfSense, Suricata & WireGuard (the core)
+Stood up the perimeter: pfSense firewall with a default-deny lab→home rule (verified: home unreachable, internet reachable); Suricata IDS with the ET Open ruleset plus my own custom rules (SID `1000001` fired on an nmap SYN scan); and WireGuard remote access, where I traced a live-vs-saved config sync bug with `wg show` / `ifconfig` / the filter log.
+→ [Full writeup](docs/phase-03-pfsense-suricata-wireguard.md)
 
-Created `vmbr1` as the lab switch so pfSense handles all routing, NAT, DHCP and DNS rather than Proxmox. Putting an IP + NAT on the bridge would have created a second router fighting pfSense.
-
-The Proxmox host is given a single management address on `vmbr1` (`10.10.10.2`), with the gateway field deliberately left blank — so it can reach the Wazuh SIEM on the lab network without becoming a router or taking a second default route. Its own route out stays via `vmbr0`, and pfSense still owns all routing, NAT, DHCP and firewalling. Lab hosts can therefore reach the host at `10.10.10.2`; every machine on that segment is trusted infrastructure, and the deliberately vulnerable target lives on a separate segment (Phase 8) with no path to the host at all. Tightening host-management access is a hardening item.
-
-### Phase 3 — pfSense, Suricata, WireGuard (the core)
-
-- **pfSense CE 2.8.1:** WAN via DHCP from my BT hub, LAN `10.10.10.1`, DHCP pool for the lab, default-deny lab → home.
-- **Suricata** in IDS (alert-only) mode on the LAN with ET Open rules plus a few of my own. I wrote SID `1000001` to catch nmap SYN scans, ran `nmap -sS` from Kali against pfSense, and watched my own rule fire.
-- **WireGuard** for remote access from my phone, with DuckDNS tracking my changing home IP. The interesting bug: the peer was saved to config but never synced to the live interface — I traced it with `wg show`, `ifconfig` and the filter log over SSH, and fixed it by forcing a re-sync. Also caught an interface left on "None" IPv4 that would have silently broken tunnel routing.
-
-### Phase 4 — Pi-hole
-
-DNS filtering on `10.10.10.10`, Quad9 upstream with DNSSEC. Beyond ad-blocking, this gives me one place to see every domain a lab host talks to — handy for spotting C2-style callbacks. Verified: `doubleclick.net` → `0.0.0.0`, `google.com` resolves normally.
+### Phase 4 — Pi-hole DNS filtering
+DNS filtering with a Quad9 + DNSSEC upstream — and, more usefully, a central log of every domain the lab resolves, for spotting C2-style callbacks. Verified: `doubleclick.net` → `0.0.0.0`, `google.com` resolves normally.
+→ [Full writeup](docs/phase-04-pihole.md)
 
 ### Phase 5 — Wazuh SIEM
-
-Built a dedicated Ubuntu Server VM on the lab network (`10.10.10.101`) and installed Wazuh all-in-one — the manager (analysis engine), the indexer (event store), and the dashboard (the web UI). At this point the SIEM was live but blind: it had no data sources yet, so the dashboard correctly showed zero agents and zero events. That clean "before" state is what makes everything that lands on it later meaningful.
+Deployed Wazuh all-in-one (manager, indexer, dashboard) on its own VM. Captured the clean "zero agents, zero events" baseline — the "before" state that makes later detections demonstrably real.
+→ [Full writeup](docs/phase-05-wazuh-siem.md)
 
 ### Phase 6 — Kali attacker
+The offensive workstation, confined to the lab — it reaches the internet through pfSense but never the home network. All attacks are launched from here against targets over the network.
+→ [Full writeup](docs/phase-06-kali.md)
 
-Kali 2026.1 on the lab network with CPU passthrough. It reaches the internet through pfSense but not my home network — exactly the isolation I was after.
-
-### Phase 7 — Feeding Suricata and pfSense into Wazuh
-
-This is where the SIEM stopped being blind. pfSense is a hardened FreeBSD appliance where a Wazuh agent isn't supported, so the integration is agentless: pfSense forwards its logs over the network to a syslog receiver on the Wazuh manager. I installed `syslog-ng` on pfSense as a relay handling two inputs — pfSense's own system and firewall logs, and Suricata's `eve.json` read straight off disk — both forwarded to Wazuh. On the Wazuh side I wrote a custom decoder to unwrap the JSON that pfSense nests inside a syslog header, and a rule (ID `100101`) that raises an alert only on genuine IDS detections.
-
-This phase was mostly debugging, and each fault taught something:
-
-- **A scan that produced no alert** turned out to be architectural, not a misconfiguration — two hosts on the same virtual bridge talk directly to each other, so the traffic never crosses pfSense and Suricata can't see it. This finding is exactly why the target later got its own separate, routed segment.
-- **Silent syslog failure** — a known pfSense issue where the log daemon stops and never retries. The config looked perfect; `tcpdump` showed zero packets leaving. Re-saving the settings restarted it, and I added Service Watchdog so it self-heals.
-- **A missing hostname** in pfSense's syslog header stopped Wazuh's decoder matching — `syslog-ng` fixed it by applying strict formatting.
-- **A case-sensitivity typo** in the generated `syslog-ng` config took down all logging at once, because the service refuses to start on any invalid reference. The lesson: check the generated config file, not just the web form.
-- **A decoder pattern mismatch** and a **duplicate rule ID** each broke the pipeline in different ways, both traced with `wazuh-logtest` until every field — signature, IPs, ports, protocol — extracted cleanly.
-
-One result I didn't expect but kept: Wazuh fired an alert when pfSense's own log daemon died. A silently dead log source looks identical to a quiet network, so a SIEM detecting the failure of its own telemetry is genuinely useful. The end state is a pipeline where an attack crosses the network, pfSense logs it and Suricata inspects it, `syslog-ng` normalises and forwards both streams, and Wazuh decodes them onto one dashboard — all persistent across reboots.
+### Phase 7 — The detection pipeline (Suricata + pfSense → Wazuh)
+The core engineering phase: an agentless `syslog-ng` pipeline forwarding pfSense logs and Suricata's `eve.json` into Wazuh, plus a custom decoder and rule to parse the JSON pfSense nests in a syslog header. Mostly methodical debugging — six distinct faults isolated with `ss`, `tcpdump`, and `wazuh-logtest`. Notable outcome: Wazuh now alerts when its own log source dies (a dead log source looks identical to a quiet network).
+→ [Full writeup](docs/phase-07-suricata-wazuh-pipeline.md)
 
 ### Phase 8 — Isolated target range
-
-Built the network the vulnerable target would live on, driven directly by the Phase 7 finding about same-segment traffic. A new bridge (`vmbr2`, `10.10.20.0/24`) was created and given no host IP at all — unlike the operator segment, the hypervisor has zero presence on this "risky" network. pfSense was given a third NIC on it and configured as the segment's gateway (`10.10.20.1`, static, no upstream), with its own DHCP pool.
-
-The heart of the phase is three firewall rules governing what the target may initiate: allow it to reach the Wazuh manager (so an agent could report), allow it to reach Kali (so an exploit's reverse shell can call back — skip this and an exploit lands but the shell silently never arrives), and then block everything else, logged. That last rule is the isolation wall: no internet, no home network, no other lab hosts, not even pfSense's own web UI. Because pfSense evaluates firewall rules before NAT, the block holds even though outbound NAT exists. The result is a segment sealed to exactly two destinations — the attacker and the SIEM — with every escape attempt dropped and logged into the Phase 7 pipeline.
+Built a second, routed segment (`vmbr2`) for the vulnerable target, driven by a Phase 7 finding (same-segment traffic never crosses pfSense, so the IDS can't see it). Three firewall rules seal the target to exactly two destinations — the SIEM and the attacker — with everything else blocked and logged.
+→ [Full writeup](docs/phase-08-target-range.md)
 
 ### Phase 9 — Suricata on the target range
-
-A sealed, routed network still isn't a watched one. The key concept here is that in pfSense, Suricata is per-interface — each instance watches exactly one interface and nothing else, so the target segment needed its own sensor, created deliberately, rather than the existing LAN instance somehow covering it. I raised the pfSense VM to 4 GB first (a second instance roughly doubles Suricata's memory use), added an instance bound to the target interface in alert-only mode, enabled the same ET Open categories, and copied my six custom rules across by hand — they don't propagate between instances.
-
-Testing it surfaced a subtlety worth understanding: scanning the target's gateway from Kali fired the *LAN* sensor, not the new one, and the new sensor stayed silent. That's correct — the traffic entered pfSense on LAN (where Kali lives), and the target segment was still empty, so there was nothing for its sensor to see. A sensor watching an empty network reports nothing. The real test had to wait until a live target existed.
+Added a second Suricata sensor for the new segment, since Suricata is per-interface and won't cover a network it isn't bound to. Surfaced the ingress principle: a scan from Kali fires the *LAN* sensor (where the traffic enters), not the target sensor.
+→ [Full writeup](docs/phase-09-suricata-target-range.md)
 
 ### Phase 10 — Deploying the target (DC-1)
+Imported DC-1 (VulnHub, Drupal 7 / Debian 7) into Proxmox with legacy-compatibility hardware so its 2015 kernel would boot, checksum-verified first. The first scan validated the whole chain end to end: it fired the custom and ET Open signatures, which flowed into Wazuh with no extra configuration.
+→ [Full writeup](docs/phase-10-target-deployment.md)
 
-Put a real, deliberately vulnerable machine on the range. I chose **DC-1**, a VulnHub boot2root box running Drupal 7 on Debian 7, because it has a realistic web-application entry point tied to a named CVE and a clean recon-to-root path. It ships as a VirtualBox OVA, so I imported it into Proxmox with `qm importovf`, then gave it legacy-compatibility hardware (i440fx, SeaBIOS, SATA disk, e1000 NIC) so its 2015 kernel would boot — modern virtual hardware kernel-panics it. I verified the download's checksum before running it, since it's an intentionally vulnerable image.
+### Phase 11 — The detection exercise
+The capstone: a full attack on DC-1 (recon → Drupalgeddon2 / CVE-2018-7600 → `www-data` shell → credential access in `settings.php` → SUID `find` to root), with Suricata in alert-only mode, then reconstructed **purely from the sensors** to measure coverage.
 
-It booted first try, pulled a DHCP lease at `10.10.20.100`, and came up with SSH, Apache/Drupal and rpcbind running. The first scan from Kali was the payoff of the whole build: it enumerated the services and fired both my custom SID `1000001` and an ET Open scan signature — and, exactly as expected from the Phase 9 ingress behaviour, those alerts landed on the LAN sensor (Kali's side) and flowed through to Wazuh with no extra configuration. A quick note on a known limitation surfaced here too: Wazuh's ATT&CK dashboard doesn't auto-classify these alerts, because they arrive through the custom decoder path rather than Wazuh's built-in tagged rules — so ATT&CK mapping is done by hand in the report, which is the more useful skill to show anyway.
+- **Caught:** the reconnaissance fired my scan rule, and the exploitation tripped a signature that **named the exact CVE**.
+- **Contained:** even with the attacker at root, the target's outbound attempts were **blocked and logged** — containment held under the worst case.
+- **The gap:** everything between the exploit and the blocked egress — reading credentials, escalating to root — happened *on the host* and was invisible to the network IDS. Strong at the perimeter, blind on the host.
 
-### Phase 11 — The detection exercise (full attack, analysed from the defender's side)
+→ [Full writeup](docs/phase-11-detection-exercise.md)
 
-The capstone: a complete attack against DC-1, start to finish, with Suricata left in alert-only mode so the defences *watched but didn't block* — the point being to measure what the monitoring sees, not to stop the attack. The attack ran over the network from Kali with no console access or credentials: recon, then web enumeration fingerprinting Drupal 7, then initial access via **Drupalgeddon2 (CVE-2018-7600)** for a shell as `www-data`, then post-exploitation that pulled database credentials out of Drupal's `settings.php`, then privilege escalation via a **SUID `find`** binary to full root, and finally an outbound test from the root shell to check the isolation held.
+The headline conclusion is the kind of thing the whole lab was built to produce: the architecture observes attacks *crossing* the network but not attacker actions *inside* a host, and the single highest-value improvement would be host-based telemetry to close that gap.
 
-Reconstructing that purely from the sensors, the results were clear:
+## Reports
 
-- **What was caught:** the reconnaissance fired my scan rule, and — the standout result — the exploitation tripped a signature that **named the exact CVE**. A defender would know not just that an attack happened, but precisely which exploit hit which application.
-- **What contained it:** even with an attacker holding root, the target's attempts to reach the internet were **blocked and logged** — containment held under the worst case, and those blocked attempts are themselves an indicator of compromise.
-- **The critical gap:** between the exploit alert and the blocked egress there's a silent window — and that's exactly when the attacker read credentials and escalated to root. None of it crossed the network, so the network IDS was structurally blind to it. The stack was strong at the perimeter and blind on the host.
-
-The full analysis — the stage-by-stage detection coverage, the MITRE ATT&CK mapping, the gaps, and the recommendations — is in the detection report:
-
-### Reports
+Two write-ups analyse the Phase 11 attack from the defender's side — a detection-coverage assessment of the whole chain, and a frontline-analyst triage report for the exploitation alert:
 
 - **➡️ [Detection Coverage Assessment](reports/detection-coverage-assessment.md)** — the full attack chain mapped to MITRE ATT&CK, measuring what the monitoring stack detected and missed, with gap-driven recommendations.
-- **➡️ [SOC Tier 1 Alert Triage Report](reports/tier1-soc-alert-report.md)** — a frontline-analyst triage and escalation writeup for the Drupalgeddon2 alert: true/false-positive call, severity, IOCs, and escalation to Tier 2.
-The headline conclusion is the kind of thing the whole lab was built to produce: the architecture observes attacks *crossing* the network but not attacker actions *inside* a host, and the single highest-value improvement would be host-based telemetry to close that gap.
+- **➡️ [SOC Tier 1 Alert Triage Report](reports/tier1-soc-alert-report.md)** — a frontline-analyst triage and escalation write-up for the Drupalgeddon2 alert: true/false-positive call, severity, IOCs, and escalation to Tier 2.
 
 ## Honest limitations
 
@@ -133,7 +119,7 @@ The headline conclusion is the kind of thing the whole lab was built to produce:
 
 ## Repo contents
 
-- **`docs/`** — the full per-phase build writeups.
-- **`reports/`** — the blue-team detection report from the Phase 11 exercise.
-- **`configs/`** — sanitised artifacts: the custom Suricata rules, the firewall rules, and the Wazuh custom decoder and rule.
+- **[`docs/`](docs/)** — the full per-phase build writeups.
+- **[`reports/`](reports/)** — the detection coverage assessment and the SOC Tier 1 alert triage report.
+- **[`configs/`](configs/)** — sanitised artifacts: the custom Suricata rules, the firewall rules, and the Wazuh custom decoder and rule.
 - **`screenshots/`** — per-phase evidence: the Suricata alerts, the blocked ping, the Pi-hole sinkhole, the nmap scans, the CVE-named exploit detection, and the SIEM dashboard.
