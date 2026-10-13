@@ -69,11 +69,12 @@ This run confirmed the ingress principle from Phase 9 against real attack data. 
 
 A full attack was carried out and analysed purely from the defender's point of view. The stack detected the reconnaissance, identified the exploitation by CVE, and contained the host's outbound communication — but was blind to all on-host activity between break-in and containment. The headline conclusion is the kind of finding the entire lab was built to produce: **the architecture observes attacks crossing the network but not attacker actions inside a host**, and host-based monitoring is the primary improvement that would turn a partially-observed intrusion into a fully-observed one.
 
-## Full report
+## Full reports
 
-The complete detection analysis — the attack-path summary, the full timeline, the stage-by-stage ATT&CK mapping, and the detailed recommendations — is in the dedicated report:
+This attack is analysed in two write-ups from the defender's side:
 
-**➡️ [Blue Team Detection Report](../reports/blue-team-detection-report.md)**
+- **➡️ [Detection Coverage Assessment](../reports/detection-coverage-assessment.md)** — the complete analysis: attack-path summary, full timeline, stage-by-stage MITRE ATT&CK mapping, and detailed recommendations.
+- **➡️ [SOC Tier 1 Alert Triage Report](../reports/tier1-soc-alert-report.md)** — a frontline-analyst triage and escalation write-up for the Drupalgeddon2 alert: true/false-positive call, severity, IOCs, and escalation to Tier 2.
 
 ## Real-world relevance
 
