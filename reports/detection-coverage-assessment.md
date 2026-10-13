@@ -1,4 +1,4 @@
-# Blue Team Detection Report — Intrusion Against Web Server (DC-1)
+# Detection Coverage Assessment — DC-1 Attack Chain
 
 > Controlled detection exercise. The attack was carried out by me against my own deliberately vulnerable target on an isolated lab network, with the goal of measuring what the monitoring stack detects and misses. This report is written from the defender's point of view, using only the data the defensive sensors produced.
 
