@@ -118,8 +118,10 @@ Reconstructing that purely from the sensors, the results were clear:
 
 The full analysis — the stage-by-stage detection coverage, the MITRE ATT&CK mapping, the gaps, and the recommendations — is in the detection report:
 
-**➡️ [Blue Team Detection Report](reports/blue-team-detection-report.md)**
+### Reports
 
+- **➡️ [Detection Coverage Assessment](reports/detection-coverage-assessment.md)** — the full attack chain mapped to MITRE ATT&CK, measuring what the monitoring stack detected and missed, with gap-driven recommendations.
+- **➡️ [SOC Tier 1 Alert Triage Report](reports/tier1-soc-alert-report.md)** — a frontline-analyst triage and escalation writeup for the Drupalgeddon2 alert: true/false-positive call, severity, IOCs, and escalation to Tier 2.
 The headline conclusion is the kind of thing the whole lab was built to produce: the architecture observes attacks *crossing* the network but not attacker actions *inside* a host, and the single highest-value improvement would be host-based telemetry to close that gap.
 
 ## Honest limitations
